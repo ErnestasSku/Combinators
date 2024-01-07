@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::{future::Future, time::Duration};
 
 use color_eyre::Report;
-use futures::io;
+// use futures::io;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -11,19 +11,25 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 mod old;
-mod tj;
+mod comb;
 mod cases;
 
-const URL_1: &str = "https://fasterthanli.me/articles/whats-in-the-box";
-const URL_2: &str = "https://fasterthanli.me/series/advent-of-code-2020/part-13";
 
-// #[tokio::main(flavor = "current_thread")]
 #[tokio::main]
 async fn main() -> Result<(), Report> {
     setup()?;
 
+
+    let a = async move { 0 };
+
+    // let b: String = comb::map(a, |x| x.to_string()).await;
+
+    // let a = cases::call_random_user().await;
+    // println!("{a:?}");
+    // let a = cases::call_user_score("{\"user\": \"B\"}").await;
+    // println!("{a:?}");
+
     println!("Enter a case number");
-    // let case = std::io::read_to_string(std::io::stdin()).map(|val| val.parse::<i32>())??;
     let mut buffer = String::new();
     std::io::stdin().read_line(&mut buffer)?;
     let case = buffer.trim().parse::<i32>()?; 
@@ -38,12 +44,7 @@ async fn main() -> Result<(), Report> {
     };
 
 
-    let f1 = foo1;
-    let f2 = foo1(4);
-
-
-    let f3 = foo2;
-    let f4 = foo2(4);
+    
 
     // Test2
     // let res = tj::sequential(
@@ -69,6 +70,7 @@ async fn main() -> Result<(), Report> {
 
     Ok(())
 }
+
 
 async fn test_async_num<E>() -> Result<i32, Box<dyn std::error::Error>> {
     info!("Sleep start");

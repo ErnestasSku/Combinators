@@ -1,6 +1,6 @@
-use std::{pin::Pin, task::Poll};
+use std::{pin::Pin, task::Poll, future::Future};
 
-use futures::Future;
+// use futures::Future;
 
 enum State<F, T, E>
 where

@@ -4,29 +4,60 @@ use tracing::info;
 
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream, time::Sleep,
+    net::TcpStream,
+    time::Sleep,
 };
 
-use crate::tj;
+use reqwest::{self, header::CONTENT_TYPE};
 
-const URL_1: &str = "https://fasterthanli.me/articles/whats-in-the-box";
-const URL_2: &str = "https://fasterthanli.me/series/advent-of-code-2020/part-13";
+use crate::comb;
+
+const URL_1: &str = "https://mif.vu.lt/lt3/";
+const URL_2: &str = "https://www.vu.lt/en/";
 
 pub async fn case1() {
-    let res = tj::join_futures(fetch_thing(URL_1), fetch_thing(URL_2)).await;
+    let res = comb::join_futures(fetch_thing(URL_1), fetch_thing(URL_2)).await;
 
     info!(?res, "All done!");
 }
 
 pub async fn case2() {
-    let res = tj::sequential(sleep5(), fetch_thing(URL_1)).await;    
-    
-    info!(?res, "All done!");
+    // let res = comb::sequential(sleep5(), fetch_thing(URL_1)).await;
+
+    // info!(?res, "All done!");
 }
 
-pub async fn case3() {}
+pub async fn case3() {
+    let first = comb::sequence(call_random_user(), |user| {
+        comb::sequence(make_json(user), |score| {
+            comb::map(call_user_score(score), |score_str| score_str.unwrap_or(0))
+        })
+    })
+    .await
+    .await;
+    let second = comb::sequence(call_random_user(), |user| {
+        comb::sequence(make_json(user), |score| {
+            comb::map(call_user_score(score), |score_str| score_str.unwrap_or(0))
+        })
+    })
+    .await
+    .await;
 
-pub async fn case4() {}
+    let combined_score = comb::combine_with(first, second, |first, second| first + second).await;
+    println!("Combined score = {combined_score}")
+}
+
+pub async fn case4() {
+    let a = 
+            comb::sequence(
+                fetch_thing(URL_1), 
+                |x| match x {
+                    Ok(o) => println!("Okay"),
+                    Err(e) => println!("Bad"),
+                } 
+            ).await;
+    dbg!(a);
+}
 
 pub async fn case5() {}
 
@@ -42,7 +73,7 @@ async fn fetch_thing(name: &str) -> Result<(), Box<dyn std::error::Error>> {
 
     socket.write_all(b"GET / HTTP/1.1\r\n").await?;
     socket.write_all(b"Host: 1.1.1.1\r\n").await?;
-    socket.write_all(b"User-Agent: cool-bear\r\n").await?;
+    socket.write_all(b"User-Agent: rust-cli\r\n").await?;
     socket.write_all(b"Connection: close\r\n").await?;
     socket.write_all(b"\r\n").await?;
 
@@ -52,9 +83,37 @@ async fn fetch_thing(name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let status = response.lines().next().unwrap_or_default();
     info!(%status, %name, "Got response!");
 
-    // dropping the socket will close the connection
-
     Ok(())
 }
 
+pub async fn call_random_user() -> Result<String, reqwest::Error> {
+    let url = "http://127.0.0.1:3000/user_random";
+    let response = reqwest::get(url).await?;
+    let body = response.text().await?;
+    info!("Response from: {}", body);
+    Ok(body)
+}
 
+pub async fn call_user_score(user: String) -> Result<i32, reqwest::Error> {
+    let url = "http://127.0.0.1:3000/user_score";
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(url)
+        .header(CONTENT_TYPE, "application/json")
+        .body(user)
+        .send()
+        .await?;
+
+    let body = response.text().await?;
+    info!("Response: {}", body);
+    Ok(body.parse::<i32>().unwrap_or(0))
+}
+
+pub async fn make_json(user: Result<String, reqwest::Error>) -> String {
+    let user = user.unwrap_or("A".to_owned());
+
+    let json = format!("{{\"user\":\"{user}\"}}");
+
+    json
+}
