@@ -28,35 +28,35 @@ pub async fn case2() {
 }
 
 pub async fn case3() {
-    let first = comb::sequence(call_random_user(), |user| {
-        comb::sequence(make_json(user), |score| {
-            comb::map(call_user_score(score), |score_str| score_str.unwrap_or(0))
-        })
-    })
-    .await
-    .await;
-    let second = comb::sequence(call_random_user(), |user| {
-        comb::sequence(make_json(user), |score| {
-            comb::map(call_user_score(score), |score_str| score_str.unwrap_or(0))
-        })
-    })
-    .await
-    .await;
+    // let first = comb::sequence(call_random_user(), |user| {
+    //     comb::sequence(make_json(user), |score| {
+    //         comb::map(call_user_score(score), |score_str| score_str.unwrap_or(0))
+    //     })
+    // })
+    // .await
+    // .await;
+    // let second = comb::sequence(call_random_user(), |user| {
+    //     comb::sequence(make_json(user), |score| {
+    //         comb::map(call_user_score(score), |score_str| score_str.unwrap_or(0))
+    //     })
+    // })
+    // .await
+    // .await;
 
-    let combined_score = comb::combine_with(first, second, |first, second| first + second).await;
-    println!("Combined score = {combined_score}")
+    // let combined_score = comb::combine_with(first, second, |first, second| first + second).await;
+    // println!("Combined score = {combined_score}")
 }
 
 pub async fn case4() {
-    let a = 
-            comb::sequence(
-                fetch_thing(URL_1), 
-                |x| match x {
-                    Ok(o) => println!("Okay"),
-                    Err(e) => println!("Bad"),
-                } 
-            ).await;
-    dbg!(a);
+    // let a = 
+    //         comb::sequence(
+    //             fetch_thing(URL_1), 
+    //             |x| match x {
+    //                 Ok(o) => println!("Okay"),
+    //                 Err(e) => println!("Bad"),
+    //             } 
+    //         ).await;
+    // dbg!(a);
 }
 
 pub async fn case5() {}

@@ -12,14 +12,6 @@ fn identity<T>(id: T) -> T {
     id
 }
 
-fn unit() -> impl Future<Output = ()> {
-    async move { () }
-}
-
-fn unit_g<T: Default>() -> impl Future<Output = T> {
-    async move { T::default() }
-}
-
 enum State<F, T, E>
 where
     F: Future<Output = Result<T, E>>,
@@ -165,6 +157,80 @@ where
     }
 }
 
+enum JoinFuturesBMap<A, B, AR, BR, AR2, BR2, F, G>
+where
+    A: Future<Output = AR>,
+    B: Future<Output = BR>,
+    F: FnOnce(AR) -> AR2,
+    G: FnOnce(BR) -> BR2,
+{
+    Polling {
+        a: SimpleState<A, AR>,
+        b: SimpleState<B, BR>,
+        f: F,
+        g: G,
+    },
+    Done,
+}
+
+pub fn join_futures_bimap<A, B, AR, BR, AR2, BR2, F, G>(a: A, b: B, f: F, g: G) -> impl Future<Output = (AR2, BR2)>
+where
+    A: Future<Output = AR>,
+    B: Future<Output = BR>,
+    F: FnOnce(AR) -> AR2,
+    G: FnOnce(BR) -> BR2,
+{
+    JoinFuturesBMap::Polling {
+        a: SimpleState::Future(a),
+        b: SimpleState::Future(b),
+        f,
+        g
+    }
+}
+
+impl<A, B, AR, BR, AR2, BR2, F, G> Future for JoinFuturesBMap<A, B, AR, BR, AR2, BR2, F, G>
+where
+    A: Future<Output = AR>,
+    B: Future<Output = BR>,
+    F: FnOnce(AR) -> AR2,
+    G: FnOnce(BR) -> BR2,
+{
+    type Output = (AR2, BR2);
+
+    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        let this = unsafe { self.get_unchecked_mut() };
+        let (a, b, f, g) = match this {
+            JoinFuturesBMap::Polling { a, b, f, g } => (a, b, f, g),
+            _ => panic!("Join futures polled after completion"),
+        };
+
+        if let SimpleState::Future(fut) = a {
+            if let Poll::Ready(res) = unsafe { Pin::new_unchecked(fut) }.poll(cx) {
+                *a = SimpleState::Ok(res);
+            }
+        }
+
+        if let SimpleState::Future(fut) = b {
+            if let Poll::Ready(res) = unsafe { Pin::new_unchecked(fut) }.poll(cx) {
+                *b = SimpleState::Ok(res);
+            }
+        }
+
+        match (a, b) {
+            (SimpleState::Ok(_), SimpleState::Ok(_)) => match std::mem::replace(this, Self::Done) {
+                JoinFuturesBMap::Polling {
+                    a: SimpleState::Ok(a),
+                    b: SimpleState::Ok(b),
+                    f,
+                    g
+                } => Poll::Ready((f(a), g(b))),
+                _ => unreachable!(),
+            },
+            _ => Poll::Pending,
+        }
+    }
+}
+
 enum Sequential<A, B, AR, BR>
 where
     A: Future<Output = AR>,
@@ -280,13 +346,13 @@ where
 enum Mapping<F, T, M, U>
 where
     F: Future<Output = T>,
-    M: FnOnce(T) -> U,
+    M: Fn(T) -> U,
 {
     Polling { future: F, mapper: M },
     Done,
 }
 
-pub fn map<T, U, F>(task: F, mapper: impl FnOnce(T) -> U) -> impl Future<Output = U>
+pub fn map<T, U, F>(task: F, mapper: impl Fn(T) -> U) -> impl Future<Output = U>
 where
     F: Future<Output = T>,
 {
@@ -299,7 +365,7 @@ where
 impl<F, T, M, U> Future for Mapping<F, T, M, U>
 where
     F: Future<Output = T>,
-    M: FnOnce(T) -> U,
+    M: Fn(T) -> U,
 {
     type Output = U;
 
@@ -390,6 +456,48 @@ where
         }
     }
 }
+
+trait Monoid {
+    fn identity() -> Self;
+    fn combine(&self, other: &Self) -> Self;
+}
+
+fn fut_unit<T: Monoid>() -> impl Future<Output = T> {
+    async move { T::identity() }
+}
+
+enum MonoidCombine<T> {
+    Polling {
+        first: T,
+        second: T,
+    },
+    Done
+}
+
+fn combine<T: Monoid + Unpin>(first: T, second: T) -> impl Future<Output = T> {
+    MonoidCombine::Polling { first, second }
+}
+
+impl<T: Monoid + Unpin> Future for MonoidCombine<T> {
+    type Output = T;
+
+    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.as_mut().get_mut();
+
+        match this {
+            MonoidCombine::Polling { first, second } => {
+                let combined = first.combine(second);
+                *this = MonoidCombine::Done;
+                Poll::Ready(combined)
+            }
+            MonoidCombine::Done => {
+                panic!("MonoidCombine polled after completion");
+            }
+        }
+    }
+}
+
+
 
 #[cfg(test)]
 mod tests {
