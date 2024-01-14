@@ -1,4 +1,9 @@
+#![allow(warnings)]
+#![allow(unused)]
+
+
 use std::net::SocketAddr;
+use std::process::exit;
 use std::{future::Future, time::Duration};
 
 use color_eyre::Report;
@@ -13,6 +18,7 @@ use tracing_subscriber::EnvFilter;
 mod old;
 mod comb;
 mod cases;
+mod examples;
 
 
 #[tokio::main]
@@ -20,14 +26,8 @@ async fn main() -> Result<(), Report> {
     setup()?;
 
 
-    let a = async move { 0 };
-
-    // let b: String = comb::map(a, |x| x.to_string()).await;
-
-    // let a = cases::call_random_user().await;
-    // println!("{a:?}");
-    // let a = cases::call_user_score("{\"user\": \"B\"}").await;
-    // println!("{a:?}");
+    examples::case2::run().await;
+    exit(0);
 
     println!("Enter a case number");
     let mut buffer = String::new();
@@ -148,10 +148,3 @@ async fn foo2(input: i32) -> i32
     input * 2
 }
 
-// fn foo2(input: impl Future<Output = i32>) -> impl Future<Output = i32>
-// {
-//     async move {
-//         let input = input.await;
-//         input * 5
-//     }
-// }

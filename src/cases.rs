@@ -1,3 +1,6 @@
+#![allow(warnings)]
+#![allow(unused)]
+
 use std::{net::SocketAddr, time::Duration};
 
 use tracing::info;
@@ -24,8 +27,32 @@ pub async fn case1() {
 pub async fn case2() {
     // let res = comb::sequential(sleep5(), fetch_thing(URL_1)).await;
 
-    // info!(?res, "All done!");
+    monoid_example().await;
+    info!("All done!");
 }
+
+#[derive(Clone, Copy, Debug)]
+struct IntMonoid(i32);
+
+impl comb::Monoid for IntMonoid {
+    fn identity() -> Self {
+        IntMonoid(0)
+    }
+
+    fn combine(&self, other: &Self) -> Self {
+        IntMonoid(self.0 + other.0)
+    }
+}
+
+async fn monoid_example() {
+    let val1 = IntMonoid(10);
+    let val2 = IntMonoid(20);
+
+    // let combined = comb::combine(val1, val2).await;
+    // println!("{combined:?}");
+    // assert_eq!(combined.0, 30, "Monoid combine should sum the integers");
+}
+
 
 pub async fn case3() {
     // let first = comb::sequence(call_random_user(), |user| {

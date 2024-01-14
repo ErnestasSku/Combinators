@@ -1,3 +1,6 @@
+#![allow(warnings)]
+#![allow(unused)]
+
 use std::{
     future::Future,
     pin::Pin,
@@ -86,6 +89,7 @@ where
     }
 }
 
+#[derive(Debug)]
 enum SimpleState<F, T>
 where
     F: Future<Output = T>,
@@ -299,47 +303,86 @@ where
     }
 }
 
-enum Sequence<F, G, T>
+enum Sequence<F, G, T, U>
 where
     F: Future<Output = T>,
-    G: FnOnce(T) -> T,
+    G: Future<Output = U>,
+    // G: FnOnce(T) -> T,
 {
-    Polling { first: F, second: G },
+    Polling { first: SimpleState<F, T>, second: SimpleState<G, U> },
     Done,
 }
 
-pub fn sequence<F, G, T>(first: F, second: G) -> impl Future<Output = T>
+pub fn sequence<F, G, T, U>(first: F, second: G) -> impl Future<Output = U>
 where
     F: Future<Output = T>,
-    G: FnOnce(T) -> T,
+    G: Future<Output = U>,
+    // G: FnOnce(T) -> T,
 {
-    Sequence::Polling { first, second }
+    Sequence::Polling { first: SimpleState::Future(first), second:  SimpleState::Future(second) }
 }
 
-impl<F, G, T> Future for Sequence<F, G, T>
+impl<F, G, T, U> Future for Sequence<F, G, T, U>
 where
     F: Future<Output = T>,
-    G: FnOnce(T) -> T,
+    G: Future<Output = U>,
 {
-    type Output = T;
+    type Output = U;
 
     fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        let this: &mut Sequence<F, G, T> = unsafe { self.get_unchecked_mut() };
-        let (first, second) = match this {
+        let this: &mut Sequence<F, G, T, U> = unsafe { self.get_unchecked_mut() };
+        let (a, b) = match this {
             Self::Polling { first, second } => (first, second),
             Self::Done => panic!("Sequential polled after completion"),
         };
 
-        let first = unsafe { Pin::new_unchecked(first) };
-        let res = match first.poll(cx) {
-            Poll::Ready(res) => res,
-            Poll::Pending => return Poll::Pending,
-        };
 
-        match std::mem::replace(this, Self::Done) {
-            Sequence::Polling { first, second } => Poll::Ready(second(res)),
-            _ => unreachable!(),
+        if let SimpleState::Future(fut) = a {
+            if let Poll::Ready(res) = unsafe { Pin::new_unchecked(fut) }.poll(cx) {
+                *a = SimpleState::Ok(res);
+            } else {
+                return Poll::Pending;
+            }
         }
+
+        
+        if let SimpleState::Future(fut) = b {
+            if let Poll::Ready(res) = unsafe { Pin::new_unchecked(fut) }.poll(cx) {
+                *b = SimpleState::Ok(res);
+            } else {
+                return Poll::Pending;
+            }
+        }
+        
+
+        match (a, b) {
+            (SimpleState::Ok(_), SimpleState::Ok(_)) => match std::mem::replace(this, Self::Done) {
+                Sequence::Polling {
+                    first: SimpleState::Ok(a),
+                    second: SimpleState::Ok(b),
+                } => Poll::Ready(b),
+                _ => unreachable!(),
+            },
+            _ => Poll::Pending,
+        }
+
+        // todo!()
+        // let first = unsafe { Pin::new_unchecked(first) };
+        // let res = match first.poll(cx) {
+        //     Poll::Ready(res) => res,
+        //     Poll::Pending => return Poll::Pending,
+        // };
+
+        // let second = unsafe { Pin::new_unchecked(second) };
+        // let res = match second.poll(cx) {
+        //     Poll::Ready(res) => res,
+        //     Poll::Pending => return Poll::Pending,
+        // };
+
+        // match std::mem::replace(this, Self::Done) {
+        //     Sequence::Polling { first, second } => Poll::Ready(res),
+        //     _ => unreachable!(),
+        // }
     }
 }
 
@@ -432,16 +475,21 @@ where
         };
 
         if let SimpleState::Future(fut) = a {
+            // println!("we poll a");
             if let Poll::Ready(res) = unsafe { Pin::new_unchecked(fut) }.poll(cx) {
+                // println!("we ready a");
                 *a = SimpleState::Ok(res);
             }
         }
 
         if let SimpleState::Future(fut) = b {
+            // println!("we poll b");
             if let Poll::Ready(res) = unsafe { Pin::new_unchecked(fut) }.poll(cx) {
+                // println!("we ready b");
                 *b = SimpleState::Ok(res);
             }
         }
+
 
         match (a, b) {
             (SimpleState::Ok(_), SimpleState::Ok(_)) => match std::mem::replace(this, Self::Done) {
@@ -449,23 +497,116 @@ where
                     a: SimpleState::Ok(a),
                     b: SimpleState::Ok(b),
                     combine,
-                } => Poll::Ready(combine(a, b)),
+                } => {
+                    // println!("RDY");
+                    Poll::Ready(combine(a, b))
+                },
                 _ => unreachable!(),
             },
-            _ => Poll::Pending,
+            _ =>{ 
+                // println!("pending");
+                Poll::Pending
+            },
         }
     }
 }
 
-trait Monoid {
+pub trait Monoid {
     fn identity() -> Self;
     fn combine(&self, other: &Self) -> Self;
 }
 
-fn fut_unit<T: Monoid>() -> impl Future<Output = T> {
-    async move { T::identity() }
+pub fn fut_id<T: Monoid>() -> Pin<Box<dyn Future<Output = T>>> {
+    Box::pin(async move { T::identity() })
 }
 
+// pub fn fut_id<T: Monoid>() -> impl Future<Output = T> {
+//     async move { T::identity() }
+// }
+
+
+enum MonoidCombineState<F1, F2>
+where
+    F1: Future,
+    F2: Future,
+{
+    Awaiting {
+        future1: F1,
+        future2: F2,
+    },
+    Completed,
+}
+
+pub struct MonoidCombine<F1, F2>
+where
+    F1: Future,
+    F2: Future,
+{
+    state: MonoidCombineState<F1, F2>,
+}
+
+impl<F1, F2> MonoidCombine<F1, F2>
+where
+    F1: Future,
+    F2: Future,
+{
+    pub fn new(future1: F1, future2: F2) -> Self {
+        MonoidCombine {
+            state: MonoidCombineState::Awaiting { future1, future2 },
+        }
+    }
+}
+
+pub fn combine<F1, F2>(future1: F1, future2: F2) -> Pin<Box<dyn Future<Output = F1::Output> + 'static>>
+where
+    F1: Future + Unpin + 'static, //Add static lifetime for now
+    F2: Future<Output = F1::Output> + Unpin + 'static, 
+    F1::Output: Monoid, //Output needs to be Monoid
+{
+    Box::pin(MonoidCombine::new(future1, future2))
+}
+
+
+impl<F1, F2> Future for MonoidCombine<F1, F2>
+where
+    F1: Future + Unpin,
+    F2: Future<Output = F1::Output> + Unpin, // Ensure F2's Output is the same as F1's Output
+    F1::Output: Monoid,
+{
+    type Output = F1::Output;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.as_mut().get_mut();
+
+        match &mut this.state {
+            MonoidCombineState::Awaiting { future1, future2 } => {
+                let mut f1_ready = None;
+                let mut f2_ready = None;
+
+                if let Poll::Ready(res) = Pin::new(future1).poll(cx) {
+                    f1_ready = Some(res);
+                }
+
+                if let Poll::Ready(res) = Pin::new(future2).poll(cx) {
+                    f2_ready = Some(res);
+                }
+
+                match (f1_ready, f2_ready) {
+                    (Some(res1), Some(res2)) => {
+                        this.state = MonoidCombineState::Completed;
+                        Poll::Ready(res1.combine(&res2))
+                    },
+                    _ => Poll::Pending,
+                }
+            }
+            MonoidCombineState::Completed => {
+                panic!("MonoidCombine polled after completion")
+            }
+        }
+    }
+}
+
+/*
 enum MonoidCombine<T> {
     Polling {
         first: T,
@@ -474,7 +615,7 @@ enum MonoidCombine<T> {
     Done
 }
 
-fn combine<T: Monoid + Unpin>(first: T, second: T) -> impl Future<Output = T> {
+pub fn combine<T: Monoid + Unpin>(first: T, second: T) -> impl Future<Output = T> {
     MonoidCombine::Polling { first, second }
 }
 
@@ -496,8 +637,7 @@ impl<T: Monoid + Unpin> Future for MonoidCombine<T> {
         }
     }
 }
-
-
+*/
 
 #[cfg(test)]
 mod tests {

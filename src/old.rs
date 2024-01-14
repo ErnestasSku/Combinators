@@ -1,3 +1,7 @@
+#![allow(warnings)]
+#![allow(unused)]
+
+
 use std::{pin::Pin, task::Poll, future::Future};
 
 // use futures::Future;
