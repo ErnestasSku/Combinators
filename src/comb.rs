@@ -606,38 +606,6 @@ where
     }
 }
 
-/*
-enum MonoidCombine<T> {
-    Polling {
-        first: T,
-        second: T,
-    },
-    Done
-}
-
-pub fn combine<T: Monoid + Unpin>(first: T, second: T) -> impl Future<Output = T> {
-    MonoidCombine::Polling { first, second }
-}
-
-impl<T: Monoid + Unpin> Future for MonoidCombine<T> {
-    type Output = T;
-
-    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.as_mut().get_mut();
-
-        match this {
-            MonoidCombine::Polling { first, second } => {
-                let combined = first.combine(second);
-                *this = MonoidCombine::Done;
-                Poll::Ready(combined)
-            }
-            MonoidCombine::Done => {
-                panic!("MonoidCombine polled after completion");
-            }
-        }
-    }
-}
-*/
 
 #[cfg(test)]
 mod tests {
